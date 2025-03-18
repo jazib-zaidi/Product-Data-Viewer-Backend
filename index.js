@@ -12,11 +12,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.send('Welcome to My Express API');
-});
-
-app.get('/api/data', (req, res) => {
-  res.json({ message: 'Hello from Express API' });
+  res.send('test');
 });
 
 app.get('/api/products/:sku', async (req, res) => {

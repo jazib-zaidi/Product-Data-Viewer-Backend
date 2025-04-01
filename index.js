@@ -5,8 +5,6 @@ const cors = require('cors');
 const app = express();
 const PORT = 3000;
 
-const API_KEY = 'x1k9qu01e1lvv60sj3kwhqtvs7hle928';
-
 app.use(cors());
 
 app.use(express.json());
@@ -27,7 +25,6 @@ app.get('/api/v1/shopify/product', async (req, res) => {
 
   try {
     if (id) {
-      // Extract Product ID from Shopify's Global ID
       const optimizeId = id.split('_');
       const productId = optimizeId.length == 4 ? optimizeId[2] : optimizeId[0];
 
@@ -35,9 +32,6 @@ app.get('/api/v1/shopify/product', async (req, res) => {
         return res.status(400).json({ error: 'Invalid productId parameter' });
       }
 
-      console.log(`Fetching Product ID: ${productId}`);
-
-      // Fetch single product details
       const productUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products/${productId}.json`;
       const productResponse = await fetch(productUrl, { headers });
 
@@ -56,7 +50,6 @@ app.get('/api/v1/shopify/product', async (req, res) => {
         return res.status(404).json({ error: 'Product not found' });
       }
 
-      // Fetch metafields for the product
       const metafieldsUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products/${productId}/metafields.json`;
       const metafieldsResponse = await fetch(metafieldsUrl, { headers });
       let metafields = [];
@@ -74,9 +67,6 @@ app.get('/api/v1/shopify/product', async (req, res) => {
         },
       });
     } else {
-      console.log(`Fetching First 10 Products`);
-
-      // Fetch the first 10 products
       const productsUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products.json?limit=1`;
       const productsResponse = await fetch(productsUrl, { headers });
 
@@ -91,12 +81,10 @@ app.get('/api/v1/shopify/product', async (req, res) => {
       const productsData = await productsResponse.json();
       const products = productsData.products || [];
 
-      // Fetch variants & metafields for each product
       const productsWithDetails = await Promise.all(
         products.map(async (product) => {
           const productId = product.id;
 
-          // Fetch metafields
           const metafieldsUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products/${productId}/metafields.json`;
           const metafieldsResponse = await fetch(metafieldsUrl, { headers });
 
@@ -120,7 +108,6 @@ app.get('/api/v1/shopify/product', async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('API Error:', error);
     res.status(500).json({
       error: 'Internal Server Error',
       message: error.message,
@@ -130,12 +117,15 @@ app.get('/api/v1/shopify/product', async (req, res) => {
 
 app.get('/api/products/:sku', async (req, res) => {
   const { sku } = req.params;
-  const apiUrl = `https://www.dymocks.com.au/rest/V1/products/${sku}`;
-  console.log(apiUrl);
+  const api_key = req.query.api_key;
+  const domain = req.query.domain;
+
+  const apiUrl = `https://${domain}/rest/V1/products/${sku}`;
+
   try {
     const response = await fetch(apiUrl, {
       headers: {
-        'Authorization': `Bearer ${API_KEY}`,
+        'Authorization': `Bearer ${api_key}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
@@ -148,12 +138,10 @@ app.get('/api/products/:sku', async (req, res) => {
 
     res.json(data);
   } catch (error) {
-    console.log(error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Start the server
 app.listen(PORT, () => {
   console.log(
     `Server running at https://product-data-viewer-backend.onrender.com/`

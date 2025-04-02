@@ -24,89 +24,65 @@ app.get('/api/v1/shopify/product', async (req, res) => {
   };
 
   try {
-    if (id) {
+    let productId = id;
+
+    // Handle Shopify global ID format (shopify_CA_xxxx_xxxx)
+    if (id.includes('_')) {
       const optimizeId = id.split('_');
-      const productId = optimizeId.length == 4 ? optimizeId[2] : optimizeId[0];
+      productId = optimizeId.length == 4 ? optimizeId[2] : optimizeId[0];
+    }
 
-      if (!productId) {
-        return res.status(400).json({ error: 'Invalid productId parameter' });
+    // If productId is purely numeric, check if it's a variant ID
+    if (!isNaN(productId)) {
+      const variantUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/variants/${productId}.json`;
+      const variantResponse = await fetch(variantUrl, { headers });
+
+      if (variantResponse.ok) {
+        const variantData = await variantResponse.json();
+        productId = variantData.variant.product_id; // Extract the actual product ID
       }
+    }
 
-      const productUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products/${productId}.json`;
-      const productResponse = await fetch(productUrl, { headers });
+    if (!productId) {
+      return res.status(400).json({ error: 'Invalid productId parameter' });
+    }
 
-      if (!productResponse.ok) {
-        return res.status(productResponse.status).json({
-          error: 'Shopify API Error',
-          status: productResponse.status,
-          message: await productResponse.text(),
-        });
-      }
+    // Fetch product details
+    const productUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products/${productId}.json`;
+    const productResponse = await fetch(productUrl, { headers });
 
-      const productData = await productResponse.json();
-      const product = productData.product;
-
-      if (!product) {
-        return res.status(404).json({ error: 'Product not found' });
-      }
-
-      const metafieldsUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products/${productId}/metafields.json`;
-      const metafieldsResponse = await fetch(metafieldsUrl, { headers });
-      let metafields = [];
-
-      if (metafieldsResponse.ok) {
-        const metafieldsData = await metafieldsResponse.json();
-        metafields = metafieldsData.metafields || [];
-      }
-
-      res.json({
-        status: 'success',
-        data: {
-          product,
-          metafields,
-        },
-      });
-    } else {
-      const productsUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products.json?limit=1`;
-      const productsResponse = await fetch(productsUrl, { headers });
-
-      if (!productsResponse.ok) {
-        return res.status(productsResponse.status).json({
-          error: 'Shopify API Error',
-          status: productsResponse.status,
-          message: await productsResponse.text(),
-        });
-      }
-
-      const productsData = await productsResponse.json();
-      const products = productsData.products || [];
-
-      const productsWithDetails = await Promise.all(
-        products.map(async (product) => {
-          const productId = product.id;
-
-          const metafieldsUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products/${productId}/metafields.json`;
-          const metafieldsResponse = await fetch(metafieldsUrl, { headers });
-
-          let metafields = [];
-          if (metafieldsResponse.ok) {
-            const metafieldsData = await metafieldsResponse.json();
-            metafields = metafieldsData.metafields || [];
-          }
-
-          return {
-            ...product,
-            variants: product.variants,
-            metafields,
-          };
-        })
-      );
-
-      res.json({
-        status: 'success',
-        data: productsWithDetails,
+    if (!productResponse.ok) {
+      return res.status(productResponse.status).json({
+        error: 'Shopify API Error',
+        status: productResponse.status,
+        message: await productResponse.text(),
       });
     }
+
+    const productData = await productResponse.json();
+    const product = productData.product;
+
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Fetch product metafields
+    const metafieldsUrl = `https://${STORE_HASH}.myshopify.com/admin/api/${API_VERSION}/products/${productId}/metafields.json`;
+    const metafieldsResponse = await fetch(metafieldsUrl, { headers });
+    let metafields = [];
+
+    if (metafieldsResponse.ok) {
+      const metafieldsData = await metafieldsResponse.json();
+      metafields = metafieldsData.metafields || [];
+    }
+
+    res.json({
+      status: 'success',
+      data: {
+        product,
+        metafields,
+      },
+    });
   } catch (error) {
     res.status(500).json({
       error: 'Internal Server Error',

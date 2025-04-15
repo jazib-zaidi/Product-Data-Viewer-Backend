@@ -1,6 +1,7 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
+const axios = require('axios');
 
 const app = express();
 const PORT = 3000;
@@ -88,6 +89,31 @@ app.get('/api/v1/shopify/product', async (req, res) => {
       error: 'Internal Server Error',
       message: error.message,
     });
+  }
+});
+
+app.get('/api/v1/salsforce/product', async (req, res) => {
+  const host = req.query.host;
+  const productId = req.query.productId;
+  const CLIENT_ID = req.query.clientId;
+  const BASE_URL = `${host}/dw/shop/v19_10/products/`;
+
+  if (host && productId && CLIENT_ID) {
+    try {
+      const url = `${BASE_URL}${productId}?expand=prices,variations,images,availability,links,promotions`;
+      const response = await axios.get(url, {
+        headers: {
+          'x-dw-client-id': CLIENT_ID,
+        },
+      });
+
+      res.json(response.data);
+    } catch (error) {
+      console.error(`Error fetching product ${productId}:`, error.message);
+      res.json(error.message);
+    }
+  } else {
+    return res.json({ field: 'Not Found' });
   }
 });
 

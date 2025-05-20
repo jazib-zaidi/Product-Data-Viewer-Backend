@@ -144,6 +144,105 @@ app.get('/api/products/:sku', async (req, res) => {
   }
 });
 
+app.get('/api/bigcommerce/products/:sku', async (req, res) => {
+  const { sku } = req.params;
+  const apiToken = req.query.api_token;
+  const storeHash = req.query.store_hash;
+
+  if (!apiToken || !storeHash) {
+    return res
+      .status(400)
+      .json({ error: 'Missing api_token or store_hash in query parameters' });
+  }
+
+  const baseUrl = `https://api.bigcommerce.com/stores/${storeHash}/v3/catalog`;
+
+  try {
+    const productRes = await fetch(
+      `${baseUrl}/products?sku=${encodeURIComponent(sku)}`,
+      {
+        headers: {
+          'X-Auth-Token': apiToken,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!productRes.ok) {
+      throw new Error(`BigCommerce API error: ${productRes.statusText}`);
+    }
+
+    const productData = await productRes.json();
+
+    if (!productData.data || productData.data.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const product = productData.data[0];
+    const productId = product.id;
+
+    const [variantData, imageData, customFieldsData] = await Promise.all([
+      fetch(`${baseUrl}/products/${productId}/variants`, {
+        headers: { 'X-Auth-Token': apiToken, 'Accept': 'application/json' },
+      })
+        .then((res) => res.json())
+        .then((res) => res.data),
+
+      fetch(`${baseUrl}/products/${productId}/images`, {
+        headers: { 'X-Auth-Token': apiToken, 'Accept': 'application/json' },
+      })
+        .then((res) => res.json())
+        .then((res) => res.data),
+
+      fetch(`${baseUrl}/products/${productId}/custom-fields`, {
+        headers: { 'X-Auth-Token': apiToken, 'Accept': 'application/json' },
+      })
+        .then((res) => res.json())
+        .then((res) => res.data),
+    ]);
+
+    let brand = null;
+    if (product.brand_id) {
+      const brandRes = await fetch(`${baseUrl}/brands/${product.brand_id}`, {
+        headers: { 'X-Auth-Token': apiToken, 'Accept': 'application/json' },
+      });
+      if (brandRes.ok) {
+        const brandData = await brandRes.json();
+        brand = brandData.data || null;
+      }
+    }
+
+    let categories = [];
+    if (product.categories && product.categories.length > 0) {
+      categories = await Promise.all(
+        product.categories.map(async (catId) => {
+          const catRes = await fetch(`${baseUrl}/categories/${catId}`, {
+            headers: { 'X-Auth-Token': apiToken, 'Accept': 'application/json' },
+          });
+          if (catRes.ok) {
+            const catData = await catRes.json();
+            return catData.data;
+          }
+          return null;
+        })
+      );
+      categories = categories.filter(Boolean);
+    }
+
+    res.json({
+      ...product,
+      brand,
+      categories,
+      variants: variantData || [],
+      images: imageData || [],
+      custom_fields: customFieldsData || [],
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(
     `Server running at https://product-data-viewer-backend.onrender.com/`

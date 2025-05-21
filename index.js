@@ -144,8 +144,8 @@ app.get('/api/products/:sku', async (req, res) => {
   }
 });
 
-app.get('/api/bigcommerce/products/:sku', async (req, res) => {
-  const { sku } = req.params;
+app.get('/api/bigcommerce/products/:identifier', async (req, res) => {
+  const { identifier } = req.params;
   const apiToken = req.query.api_token;
   const storeHash = req.query.store_hash;
 
@@ -158,30 +158,98 @@ app.get('/api/bigcommerce/products/:sku', async (req, res) => {
   const baseUrl = `https://api.bigcommerce.com/stores/${storeHash}/v3/catalog`;
 
   try {
-    const productRes = await fetch(
-      `${baseUrl}/products?sku=${encodeURIComponent(sku)}`,
-      {
+    let product;
+    let productId;
+
+    if (/^\d+$/.test(identifier)) {
+      // Fetch product by ID
+      const productRes = await fetch(`${baseUrl}/products/${identifier}`, {
         headers: {
           'X-Auth-Token': apiToken,
           'Accept': 'application/json',
           'Content-Type': 'application/json',
         },
+      });
+
+      if (!productRes.ok)
+        throw new Error(`BigCommerce API error: ${productRes.statusText}`);
+
+      const productData = await productRes.json();
+      product = productData.data;
+      productId = product.id;
+    } else {
+      // Try finding product by SKU (base product)
+      const productRes = await fetch(
+        `${baseUrl}/products?sku=${encodeURIComponent(identifier)}`,
+        {
+          headers: {
+            'X-Auth-Token': apiToken,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!productRes.ok)
+        throw new Error(`BigCommerce API error: ${productRes.statusText}`);
+
+      const productData = await productRes.json();
+
+      if (productData.data && productData.data.length > 0) {
+        product = productData.data[0];
+        productId = product.id;
+      } else {
+        // Fallback: try to find variant by SKU
+        const variantRes = await fetch(
+          `${baseUrl}/variants?sku=${encodeURIComponent(identifier)}`,
+          {
+            headers: {
+              'X-Auth-Token': apiToken,
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        if (!variantRes.ok)
+          throw new Error(
+            `BigCommerce API error (variant): ${variantRes.statusText}`
+          );
+
+        const variantData = await variantRes.json();
+
+        if (!variantData.data || variantData.data.length === 0) {
+          return res
+            .status(404)
+            .json({ error: 'Product not found (SKU or variant)' });
+        }
+
+        productId = variantData.data[0].product_id;
+
+        // Fetch product by ID (from variant)
+        const fallbackProductRes = await fetch(
+          `${baseUrl}/products/${productId}`,
+          {
+            headers: {
+              'X-Auth-Token': apiToken,
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        if (!fallbackProductRes.ok) {
+          throw new Error(
+            `BigCommerce API error (product fallback): ${fallbackProductRes.statusText}`
+          );
+        }
+
+        const fallbackProductData = await fallbackProductRes.json();
+        product = fallbackProductData.data;
       }
-    );
-
-    if (!productRes.ok) {
-      throw new Error(`BigCommerce API error: ${productRes.statusText}`);
     }
 
-    const productData = await productRes.json();
-
-    if (!productData.data || productData.data.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    const product = productData.data[0];
-    const productId = product.id;
-
+    // Fetch additional data
     const [variantData, imageData, customFieldsData] = await Promise.all([
       fetch(`${baseUrl}/products/${productId}/variants`, {
         headers: { 'X-Auth-Token': apiToken, 'Accept': 'application/json' },
@@ -202,6 +270,7 @@ app.get('/api/bigcommerce/products/:sku', async (req, res) => {
         .then((res) => res.data),
     ]);
 
+    // Brand
     let brand = null;
     if (product.brand_id) {
       const brandRes = await fetch(`${baseUrl}/brands/${product.brand_id}`, {
@@ -213,6 +282,7 @@ app.get('/api/bigcommerce/products/:sku', async (req, res) => {
       }
     }
 
+    // Categories
     let categories = [];
     if (product.categories && product.categories.length > 0) {
       categories = await Promise.all(
